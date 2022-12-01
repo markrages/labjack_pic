@@ -1,0 +1,32 @@
+[project]
+name = "labjack_pic"
+version = "0.0.1"
+authors = [
+  { name="Mark Rages", email="markrages@gmail.com" },
+]
+description = "Program PIC microcontrollers using LabJack U3"
+readme = "README.md"
+requires-python = ">=3.6"
+classifiers = [
+    "Programming Language :: Python :: 3",
+	"License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "intelhex",
+	"LabJackPython",
+]
+
+
+[project.urls]
+"Homepage" = "https://github.com/markrages/labjack_pic/"
+"Bug Tracker" = "https://github.com/markrages/labjack_pic/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+labjack_pic = "labjack_pic.lj_pic:main"
+
