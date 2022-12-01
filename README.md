@@ -23,9 +23,13 @@ you can power it with VS (usb power).  Otherwise arrange some other
 power supply. LabJack outputs are 3.3 V, so lower voltages are a bad
 idea.
 
+## Installation
+
+`pip3 install labjack_pic`
+
 ## Usage
 
-`./lj_pic [filename.hex]`
+`labjack_pic [filename.hex]`
   
 This programs the hex file:
 
