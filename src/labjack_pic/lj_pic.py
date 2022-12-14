@@ -4,7 +4,6 @@ import intelhex
 import time
 from .u3_manager import u3_manager
 import itertools
-import sys
 
 """
 
@@ -354,7 +353,8 @@ class Pic16F_40002266(Pic16F_Enhanced_Midrange):
 
     https://ww1.microchip.com/downloads/aemtest/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F171XX-Family-Programming-Specification-40002266.pdf
     """
-
+    Tpint = 0.0028 # program memory
+    
 class Pic16F17114(Pic16F_40002266):
     FLASH_LEN = 4*1024
 class Pic16F17115(Pic16F_40002266):
@@ -421,15 +421,18 @@ device_ids = {
 def program(mclr_pin,
             icspdat_pin,
             icspclk_pin,
-            hex_filename):
+            hex_filename,
+            require_pic=None):
 
-    pic = Pic16F_40002317(mclr_pin = mclr_pin,
-                          icspdat_pin = icspdat_pin,
-                          icspclk_pin = icspclk_pin)
+    pic = Pic16F_Enhanced_Midrange(mclr_pin = mclr_pin,
+                                   icspdat_pin = icspdat_pin,
+                                   icspclk_pin = icspclk_pin)
 
     with pic.lookup_id() as pic:
 
         print("Found", pic.name)
+        if require_pic:
+            assert require_pic.upper() == pic.name.upper()
 
         ih = intelhex.IntelHex16bit()
         ih.loadfile(hex_filename, format='hex')
@@ -514,11 +517,18 @@ def program(mclr_pin,
         return verify_errors
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Program a PIC using LabJack.")
+    parser.add_argument("--pic", "-p", help='Require this device before programming')
+    parser.add_argument("hexfile", metavar="HEXFILE", nargs=1, help="Hex file to program")
+    args = parser.parse_args()
+    
     lj = u3_manager.u3()
     return program(mclr_pin = lj.FIO4,
                    icspdat_pin = lj.FIO5,
                    icspclk_pin = lj.FIO6,
-                   hex_filename = sys.argv[1])
+                   require_pic = args.pic,
+                   hex_filename = args.hexfile[0])
 
 if __name__=="__main__":
     main()
