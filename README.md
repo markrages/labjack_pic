@@ -18,8 +18,8 @@ Connect GND, MCLR, ICSPDAT, ICSPCLK to FIOs on the LabJack. Defaults are:
 
 You can use different pins, just edit the script correspondingly.
 
-If your cirucit is OK with 5V power and doesn't draw too much current,
-you can power it with VS (usb power).  Otherwise arrange some other
+If your circuit is OK with 5V power and doesn't draw too much current,
+you can power it with VS (USB power).  Otherwise arrange some other
 power supply. LabJack outputs are 3.3 V, so lower voltages are a bad
 idea.
 
@@ -46,9 +46,24 @@ not available as a general-purpose input in the circuit.  This also
 means that this programmer cannot recover a part that has been
 programmed to MCLR-as-input.
 
-Currently supports devices covered by [Programming Specification 40002317](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F180XX-Family-Programming-Specification-40002317.pdf).
+Currently supports devices covered by [Programming Specification 40002317](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F180XX-Family-Programming-Specification-40002317.pdf) and [Programming Specification 40002266](https://ww1.microchip.com/downloads/aemtest/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F171XX-Family-Programming-Specification-40002266.pdf).
+
 These are:
 
+- PIC16F17114
+- PIC16F17115
+- PIC16F17124
+- PIC16F17125
+- PIC16F17126
+- PIC16F17144
+- PIC16F17145
+- PIC16F17146
+- PIC16F17154
+- PIC16F17155
+- PIC16F17156
+- PIC16F17174
+- PIC16F17175
+- PIC16F17176
 - PIC16F18013
 - PIC16F18023
 - PIC16F18014

@@ -110,13 +110,7 @@ class Pic:
             self.flush_tx_spi()
             time.sleep(timeout)
 
-
-class Pic16F_4002317(Pic):
-    """
-    Programming spec: 40002317
-
-    https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F180XX-Family-Programming-Specification-40002317.pdf
-    """
+class Pic16F_Enhanced_Midrange(Pic):
 
     USER_ADDR = 0x8000
 
@@ -314,40 +308,98 @@ class Pic16F_4002317(Pic):
             (0xf000, 0xf100, "eeprom", 1),
         ]
 
-class Pic16F18013(Pic16F_4002317):
+class Pic16F_40002317(Pic16F_Enhanced_Midrange):
+    """
+    Programming spec: 40002317
+
+    https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F180XX-Family-Programming-Specification-40002317.pdf
+    """
+
+class Pic16F18013(Pic16F_40002317):
     FLASH_LEN = 2*1024 # words
-class Pic16F18014(Pic16F_4002317):
+class Pic16F18014(Pic16F_40002317):
     FLASH_LEN = 4*1024
-class Pic16F18015(Pic16F_4002317):
+class Pic16F18015(Pic16F_40002317):
     FLASH_LEN = 8*1024
-class Pic16F18023(Pic16F_4002317):
+class Pic16F18023(Pic16F_40002317):
     FLASH_LEN = 2*1024
-class Pic16F18024(Pic16F_4002317):
+class Pic16F18024(Pic16F_40002317):
     FLASH_LEN = 4*1024
-class Pic16F18025(Pic16F_4002317):
+class Pic16F18025(Pic16F_40002317):
     FLASH_LEN = 8*1024
-class Pic16F18026(Pic16F_4002317):
+class Pic16F18026(Pic16F_40002317):
     FLASH_LEN = 16*1024
-class Pic16F18044(Pic16F_4002317):
+class Pic16F18044(Pic16F_40002317):
     FLASH_LEN = 4*1024
-class Pic16F18045(Pic16F_4002317):
+class Pic16F18045(Pic16F_40002317):
     FLASH_LEN = 8*1024
-class Pic16F18046(Pic16F_4002317):
+class Pic16F18046(Pic16F_40002317):
     FLASH_LEN = 16*1024
-class Pic16F18054(Pic16F_4002317):
+class Pic16F18054(Pic16F_40002317):
     FLASH_LEN = 4*1024
-class Pic16F18055(Pic16F_4002317):
+class Pic16F18055(Pic16F_40002317):
     FLASH_LEN = 8*1024
-class Pic16F18056(Pic16F_4002317):
+class Pic16F18056(Pic16F_40002317):
     FLASH_LEN = 16*1024
-class Pic16F18074(Pic16F_4002317):
+class Pic16F18074(Pic16F_40002317):
     FLASH_LEN = 4*1024
-class Pic16F18075(Pic16F_4002317):
+class Pic16F18075(Pic16F_40002317):
     FLASH_LEN = 8*1024
-class Pic16F18076(Pic16F_4002317):
+class Pic16F18076(Pic16F_40002317):
+    FLASH_LEN = 16*1024
+
+class Pic16F_40002266(Pic16F_Enhanced_Midrange):
+    """
+    Programming spec: 40002266
+
+    https://ww1.microchip.com/downloads/aemtest/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F171XX-Family-Programming-Specification-40002266.pdf
+    """
+
+class Pic16F17114(Pic16F_40002266):
+    FLASH_LEN = 4*1024
+class Pic16F17115(Pic16F_40002266):
+    FLASH_LEN = 8*1024
+class Pic16F17124(Pic16F_40002266):
+    FLASH_LEN = 4*1024 
+class Pic16F17125(Pic16F_40002266):
+    FLASH_LEN = 8*1024
+class Pic16F17126(Pic16F_40002266):
+    FLASH_LEN = 16*1024
+class Pic16F17144(Pic16F_40002266):
+    FLASH_LEN = 4*1024
+class Pic16F17145(Pic16F_40002266):
+    FLASH_LEN = 8*1024
+class Pic16F17146(Pic16F_40002266):
+    FLASH_LEN = 16*1024
+class Pic16F17154(Pic16F_40002266):
+    FLASH_LEN = 4*1024
+class Pic16F17155(Pic16F_40002266):
+    FLASH_LEN = 8*1024
+class Pic16F17156(Pic16F_40002266):
+    FLASH_LEN = 16*1024
+class Pic16F17174(Pic16F_40002266):
+    FLASH_LEN = 4*1024
+class Pic16F17175(Pic16F_40002266):
+    FLASH_LEN = 8*1024
+class Pic16F17176(Pic16F_40002266):
     FLASH_LEN = 16*1024
 
 device_ids = {
+    0x30DB: Pic16F17114,
+    0x30E2: Pic16F17115,
+    0x30DC: Pic16F17124,
+    0x30DE: Pic16F17125,
+    0x30E0: Pic16F17126,
+    0x30DD: Pic16F17144,
+    0x30DF: Pic16F17145,
+    0x30E1: Pic16F17146,
+    0x3101: Pic16F17154,
+    0x3103: Pic16F17155,
+    0x3105: Pic16F17156,
+    0x3102: Pic16F17174,
+    0x3104: Pic16F17175,
+    0x3106: Pic16F17176,
+
     0x30F1: Pic16F18013,
     0x30F2: Pic16F18014,
     0x30F5: Pic16F18015,
@@ -371,9 +423,9 @@ def program(mclr_pin,
             icspclk_pin,
             hex_filename):
 
-    pic = Pic16F_4002317(mclr_pin = mclr_pin,
-                         icspdat_pin = icspdat_pin,
-                         icspclk_pin = icspclk_pin)
+    pic = Pic16F_40002317(mclr_pin = mclr_pin,
+                          icspdat_pin = icspdat_pin,
+                          icspclk_pin = icspclk_pin)
 
     with pic.lookup_id() as pic:
 
@@ -439,6 +491,8 @@ def program(mclr_pin,
                        erase_user_id = 'user' in region_by_type,
                        erase_config = 'config' in region_by_type)
 
+        verify_errors = 0
+
         for r, reglist in region_by_type.items():
             for reg in reglist:
                 words = [ih[x] for x in range(*reg)]
@@ -446,24 +500,25 @@ def program(mclr_pin,
                 #print(">  ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
                 pic.write_flash(words, start_addr = reg[0])
                 #print(">> ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
-                readback = pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0])
+                readback = pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0])               
                 for word_wrote,word_read,addr in zip(words, readback, range(*reg)):
                     if (word_wrote ^ word_read) & 16383:
                         for start,end,name,_ in pic.memory_map:
                             if addr >= start and addr < end:
                                 print(f"Verify Error at {addr:04x} (wrote {word_wrote:04x}, read {word_read:04x})")
+                                verify_errors += 1
 
             #pic.read_config_stuff()
 
         pic.exit_lvp()
+        return verify_errors
 
 def main():
     lj = u3_manager.u3()
-    program(mclr_pin = lj.FIO4,
-            icspdat_pin = lj.FIO5,
-            icspclk_pin = lj.FIO6,
-            hex_filename = sys.argv[1])
-    return 0
+    return program(mclr_pin = lj.FIO4,
+                   icspdat_pin = lj.FIO5,
+                   icspclk_pin = lj.FIO6,
+                   hex_filename = sys.argv[1])
 
 if __name__=="__main__":
     main()
