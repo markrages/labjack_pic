@@ -268,13 +268,9 @@ class UART(object):
         ct = rb['NumAsynchBytesInRXBuffer']
         self.readbuffer += bytes(rb['AsynchBytes'][:ct])
 
-class I2C(object):
-    "LabJack I2C bus using the interface of nrf5x.py and drivers.py"
-    def __init__(self, scl_pin, sda_pin, address):
-        assert scl_pin.parent == sda_pin.parent # both pins must be same labjack
-        self.parent = scl_pin.parent
-        self.sda = sda_pin.number
-        self.scl = scl_pin.number
+class I2CAddressed(object):
+    def __init__(self, parent, address):
+        self.parent = parent
         self.address = address
 
     def write(self, command, data, stop=True):
@@ -286,6 +282,41 @@ class I2C(object):
                     NumI2CBytesToReceive = count)
 
     def __call__(self, *args, **kwargs):
+        kwargs.setdefault('Address', self.address)
+        return self.parent(*args, **kwargs)
+
+    def compat(self):
+        return I2CAddressedCompat(self)
+
+class I2CAddressedCompat(object):
+    def __init__(self, parent):
+        self.parent = parent
+
+    def write(self, data):
+        print('data',data)
+        return self.exchange(data=data, count=0)
+
+    def read(self, count):
+        return self.exchange(data=[], count=count)
+
+    def exchange(self, data, count):
+        ret = self.parent(I2CBytes = list(data),
+                          NumI2CBytesToReceive = count)
+        print(ret)
+        return bytes(ret['I2CBytes'])
+
+class I2C(object):
+    "LabJack I2C bus using the interface of nrf5x.py and drivers.py"
+    def __init__(self, scl_pin, sda_pin):
+        assert scl_pin.parent == sda_pin.parent # both pins must be same labjack
+        self.parent = scl_pin.parent
+        self.sda = sda_pin.number
+        self.scl = scl_pin.number
+
+    def address(self, address):
+        return I2CAddressed(self, address)
+
+    def __call__(self, *args, **kwargs):
         """ Here's a giant back door.
 
         Calling the object is the same as calling u3 objects's "i2c" method.
@@ -295,7 +326,6 @@ class I2C(object):
         But *this* interface could be grafted on to nrf5x.py fairly easily.
         """
 
-        kwargs.setdefault('Address', self.address)
         kwargs.setdefault('I2CBytes',[])
         kwargs.setdefault('EnableClockStretching',True)
         kwargs.setdefault('NumI2CBytesToReceive', 0)
@@ -334,7 +364,7 @@ class ManagedU3(u3py.U3):
         super(ManagedU3, self).__init__(*args, **kwargs)
         self.getCalibrationData()
 
-        #assert self.deviceName in ['U3-HV']
+        # assert self.deviceName in ['U3-HV']
 
         self.FIO = [FIOPin(self, pin) for pin in range(8)]
         self.EIO = [FIOPin(self, pin+8) for pin in range(8)]
@@ -378,7 +408,7 @@ class ManagedU3(u3py.U3):
         return volts
 
     def i2c_bus(self, sda, scl):
-        return I2C(sda_pin=sda, scl_pin=scl, address=None)
+        return I2C(sda_pin=sda, scl_pin=scl)
 
 u3_devices = {}
 
