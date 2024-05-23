@@ -4,6 +4,7 @@ import intelhex
 import time
 from .u3_manager import u3_manager
 import itertools
+from u3 import BitStateWrite, BitStateRead, WaitShort
 
 """
 
@@ -21,6 +22,14 @@ I hooked up like so:
 | PGM     |   6 | blue   | --      |
 
 """
+
+def reverse_bits(val, bit_count):
+    ret = 0
+    for x in range(bit_count):
+        ret <<= 1
+        ret |= val & 1
+        val >>= 1
+    return ret
 
 class Pic:
     USERID_ADDR = 0x8000
@@ -41,6 +50,7 @@ class Pic:
         self.dat.clear()
         self.clk.clear()
         self.tx_spi = []
+        self.tx_bits = []
 
     def __enter__(self):
         return self
@@ -63,7 +73,40 @@ class Pic:
         ))
         self.tx_spi.append(bytelist)
 
+    def flush_tx_bits(self):
+        bits = map(bool, self.tx_bits)
+        self.tx_bits = []
+        lj = self.clk.parent
+        fb_commands = []
+
+        # I measure 9 us between command executions
+        # setup and hold times are 100 ns, so no need to add delays
+
+        for bit in bits:
+            fb_commands += [
+                BitStateWrite(self.dat.number, bit),
+                BitStateWrite(self.clk.number, 1),
+                # WaitShort(Time = setup_time/128e-6)
+                BitStateWrite(self.clk.number, 0)
+                # WaitShort(Time = hold_time/128e-6)
+            ]
+        lj.getFeedback(fb_commands)
+
+    def queue_tx_bit(self, bit):
+        self.flush_tx_spi()
+        MAX_BITS_IN_COMMAND = 6 # 9 will work
+        self.tx_bits.append(bit)
+        if len(self.tx_bits) >= MAX_BITS_IN_COMMAND:
+            self.flush_tx_bits()
+
+    def send_6_le(self, cmd):
+        for x in range(6):
+            self.queue_tx_bit(cmd & 1)
+            cmd >>= 1
+
     def flush_tx_spi(self):
+        self.flush_tx_bits()
+
         alldata = list(itertools.chain(*self.tx_spi))
         self.tx_spi = []
 
@@ -152,7 +195,7 @@ class Pic16F_Enhanced_Midrange(Pic):
         self.sleep(self.Tenth)
         self.send32(self.KEY)
         self.sleep(self.Tenth)
-
+        
     def set_PC(self, pc):
         self.pc = pc
         self.send8_24(0x80, pc)
@@ -160,11 +203,6 @@ class Pic16F_Enhanced_Midrange(Pic):
     def increment_pc(self):
         self.pc += 1
         self.send8(0xf8)
-
-    def load_mem(self, d, inc=False):
-        "loads one word of data from PC into buffer on target"
-        self.send8_24([0x00, 0x02][inc], d)
-        self.pc += inc
 
     def write_row(self):
         self.send8(0xe0) # internally timed
@@ -215,7 +253,10 @@ class Pic16F_Enhanced_Midrange(Pic):
         self.enter_lvp()
         device_id = self.read_device_id()
 
-        #print("Device ID: %x"%device_id)
+        if not device_id in device_ids:
+            self.exit_lvp()
+            raise KeyError("Unknown device ID: %x"%device_id)
+
         cls = device_ids[device_id]
 
         return cls(mclr_pin = self.mclr,
@@ -354,13 +395,13 @@ class Pic16F_40002266(Pic16F_Enhanced_Midrange):
     https://ww1.microchip.com/downloads/aemtest/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F171XX-Family-Programming-Specification-40002266.pdf
     """
     Tpint = 0.0028 # program memory
-    
+
 class Pic16F17114(Pic16F_40002266):
     FLASH_LEN = 4*1024
 class Pic16F17115(Pic16F_40002266):
     FLASH_LEN = 8*1024
 class Pic16F17124(Pic16F_40002266):
-    FLASH_LEN = 4*1024 
+    FLASH_LEN = 4*1024
 class Pic16F17125(Pic16F_40002266):
     FLASH_LEN = 8*1024
 class Pic16F17126(Pic16F_40002266):
@@ -383,6 +424,107 @@ class Pic16F17175(Pic16F_40002266):
     FLASH_LEN = 8*1024
 class Pic16F17176(Pic16F_40002266):
     FLASH_LEN = 16*1024
+
+
+back_key = reverse_bits(0x4d434850,32)
+
+class Pic16F_XLP(Pic16F_Enhanced_Midrange):
+    KEY = back_key # 'MCHP' backwards
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pc = 99999999
+        
+    def set_PC(self, address):
+        if address >= 0x8000: # config data
+            if (self.pc < 0x8000) or (self.pc > address):
+                self.send_6_le(0x00) # load configuration
+                self.send_value(2, 0x00)
+                self.pc = 0x8000
+        else: # not config data
+            if self.pc > address:
+                self.send_6_le(0x16) # reset address
+                self.pc = 0
+
+        while self.pc < address:
+             self.send_6_le(0x06) # increment address
+             self.pc += 1
+
+    def read_mem(self, inc=True):
+        self.send_6_le(0x04)
+        self.sleep(self.Tdly)
+        ret = self.read16_le()
+
+        if inc:
+            self.send_6_le(0x06)
+            self.pc += 1
+
+        return ret
+
+
+    def read16_le(self):
+        start_bit = (1<<15)
+        stop_bit = (1<<0)
+        bits_mask = ~(start_bit | stop_bit)
+
+        ret = (self.read_value(16//8) & bits_mask) >> 1
+        return reverse_bits(ret, 14)
+        
+    def enter_lvp(self):
+        self.mclr.clear()
+        self.sleep(self.Tenth)
+        self.send32(self.KEY)
+        self.queue_tx_bit(0)       
+        self.sleep(self.Tenth)
+        
+    def xwrite_flash(self, data, start_addr = None):
+        if start_addr is None:
+            start_addr = 0
+
+        self.set_PC(start_addr)            
+        for d in data:
+            x = reverse_bits(d, 14)            
+            #TODO send bits out SPI
+            
+            
+        
+class Pic16F_40001683(Pic16F_XLP):
+    """
+    Programming spec: 40001683
+
+    https://ww1.microchip.com/downloads/en/DeviceDoc/40001683B.pdf
+    """
+
+    Tpint = 0.0025 # program memory
+    Tpint_config = 0.005 # config memory
+
+    def set_PC(self, pc):
+        self.pc = pc
+        self.send8_24(0x80, pc)
+
+    def read_mem():
+        pass
+
+class Pic16F1703(Pic16F_40001683):
+    FLASH_LEN = 0x0800
+class Pic16F1704(Pic16F_40001683):
+    FLASH_LEN = 0x1000
+class Pic16F1705(Pic16F_40001683):
+    FLASH_LEN = 0x2000
+class Pic16F1707(Pic16F_40001683):
+    FLASH_LEN = 0x0800
+class Pic16F1708(Pic16F_40001683):
+    FLASH_LEN = 0x1000
+class Pic16F1709(Pic16F_40001683):
+    FLASH_LEN = 0x2000
+
+class Pic16LF1703(Pic16F1703): pass
+class Pic16LF1704(Pic16F1704): pass
+class Pic16LF1705(Pic16F1705): pass
+class Pic16LF1707(Pic16F1707): pass
+class Pic16LF1708(Pic16F1708): pass
+class Pic16LF1709(Pic16F1709): pass
+
+# DS40001683B-page 9
 
 device_ids = {
     0x30DB: Pic16F17114,
@@ -416,6 +558,19 @@ device_ids = {
     0x30FD: Pic16F18074,
     0x30FE: Pic16F18075,
     0x3100: Pic16F18076,
+
+    0x3061: Pic16F1703,
+    0x3063: Pic16LF1703,
+    0x3043: Pic16F1704,
+    0x3045: Pic16LF1704,
+    0x3055: Pic16F1705,
+    0x3057: Pic16LF1705,
+    0x3060: Pic16F1707,
+    0x3062: Pic16LF1707,
+    0x3042: Pic16F1708,
+    0x3044: Pic16LF1708,
+    0x3054: Pic16F1709,
+    0x3056: Pic16LF1709,
 }
 
 def program(mclr_pin,
@@ -424,9 +579,18 @@ def program(mclr_pin,
             hex_filename,
             require_pic=None):
 
-    pic = Pic16F_Enhanced_Midrange(mclr_pin = mclr_pin,
-                                   icspdat_pin = icspdat_pin,
-                                   icspclk_pin = icspclk_pin)
+    try:
+        raise KeyError
+        pic = Pic16F_Enhanced_Midrange(mclr_pin = mclr_pin,
+                                       icspdat_pin = icspdat_pin,
+                                       icspclk_pin = icspclk_pin)
+        pic.lookup_id()
+
+    except KeyError:
+        pic = Pic16F_XLP(mclr_pin = mclr_pin,
+                         icspdat_pin = icspdat_pin,
+                         icspclk_pin = icspclk_pin)
+
 
     with pic.lookup_id() as pic:
 
@@ -503,7 +667,7 @@ def program(mclr_pin,
                 #print(">  ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
                 pic.write_flash(words, start_addr = reg[0])
                 #print(">> ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
-                readback = pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0])               
+                readback = pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0])
                 for word_wrote,word_read,addr in zip(words, readback, range(*reg)):
                     if (word_wrote ^ word_read) & 16383:
                         for start,end,name,_ in pic.memory_map:
@@ -522,7 +686,7 @@ def main():
     parser.add_argument("--pic", "-p", help='Require this device before programming')
     parser.add_argument("hexfile", metavar="HEXFILE", nargs=1, help="Hex file to program")
     args = parser.parse_args()
-    
+
     lj = u3_manager.u3()
     return program(mclr_pin = lj.FIO4,
                    icspdat_pin = lj.FIO5,
