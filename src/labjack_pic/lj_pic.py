@@ -23,7 +23,7 @@ I hooked up like so:
 
 """
 
-def reverse_bits(val, bit_count):
+def reverse_bits(bit_count, val):
     ret = 0
     for x in range(bit_count):
         ret <<= 1
@@ -49,87 +49,110 @@ class Pic:
             self.mclr.set()
         self.dat.clear()
         self.clk.clear()
-        self.tx_spi = []
-        self.tx_bits = []
+
+        self.tx_bits = 0
+        self.tx_bits_ct = 0
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         if not exc_type:
-            self.flush_tx_spi()
+            self.flush_tx()
 
     @property
     def name(self):
         return self.__class__.__name__
 
-    def send_value(self, width, val):
-        """ val is value to send (integer)
-        width is number of bytes to send (big-endian)
-        """
-        bytelist = list(reversed(
-            [0xff & (val >> (8*b))
-             for b in range(width)]
-        ))
-        self.tx_spi.append(bytelist)
+    def send_value_msb(self, width, val):
+        """ prepares to clock out value msb-first 
 
-    def flush_tx_bits(self):
-        bits = map(bool, self.tx_bits)
-        self.tx_bits = []
+        val is value to send (integer)
+        width is number of bits to send
+        """        
+        return self.send_value_lsb(width, reverse_bits(width, val))
+        
+    def send_value_lsb(self, width, val):
+        """ prepares to clock out value lsb-first 
+
+        val is value to send (integer)
+        width is number of bits to send
+        """
+        assert val >= 0
+
+        print(f"sending {width} bits {val:x}")
+        
+        self.tx_bits |= val << self.tx_bits_ct
+        self.tx_bits_ct += width
+                
+    def _flush_tx_bits(self):
+
         lj = self.clk.parent
         fb_commands = []
 
         # I measure 9 us between command executions
         # setup and hold times are 100 ns, so no need to add delays
-
-        for bit in bits:
-            fb_commands += [
+        
+        print(f"bit flushing {self.tx_bits_ct} bits {self.tx_bits:x}")
+        for bit_num in range(self.tx_bits_ct):
+            bit = self.tx_bits & 1
+            fb_commands += [                
                 BitStateWrite(self.dat.number, bit),
                 BitStateWrite(self.clk.number, 1),
                 # WaitShort(Time = setup_time/128e-6)
                 BitStateWrite(self.clk.number, 0)
                 # WaitShort(Time = hold_time/128e-6)
             ]
+            self.tx_bits >>= 1
+        self.tx_bits_ct = 0
+            
         lj.getFeedback(fb_commands)
 
-    def queue_tx_bit(self, bit):
-        self.flush_tx_spi()
-        MAX_BITS_IN_COMMAND = 6 # 9 will work
-        self.tx_bits.append(bit)
-        if len(self.tx_bits) >= MAX_BITS_IN_COMMAND:
-            self.flush_tx_bits()
-
     def send_6_le(self, cmd):
-        for x in range(6):
-            self.queue_tx_bit(cmd & 1)
-            cmd >>= 1
+        ret = self.send_value_lsb(6, cmd)
+        #self.flush_tx()
+        return ret
 
-    def flush_tx_spi(self):
-        alldata = list(itertools.chain(*self.tx_spi))
-        if alldata:
-            self.flush_tx_bits()
+    def flush_tx(self):
+        self._flush_tx_spi()
+        self._flush_tx_bits()
         
-        self.tx_spi = []
+    def _flush_tx_spi(self):
 
+        print(f"spi flushing {self.tx_bits_ct} bits {self.tx_bits:x}")
+        
+        spi_bytes = []
+        while self.tx_bits_ct >= 8:
+            spi_bytes.append(reverse_bits(8, self.tx_bits & 0xff))
+            self.tx_bits >>= 8
+            self.tx_bits_ct -= 8
+    
         unused = 0xff
         lj = self.clk.parent
 
         chunklen = 50
 
-        for pos in range(0, len(alldata), chunklen):
-            lj.spi(SPIBytes = alldata[pos:pos+chunklen],
+        for pos in range(0, len(spi_bytes), chunklen):
+            lj.spi(SPIBytes = spi_bytes[pos:pos+chunklen],
                    CLKPinNum = self.clk.number,
                    MOSIPinNum = self.dat.number,
                    MISOPinNum = unused,
                    CSPinNum = unused,
                    SPIMode='B',
                    AutoCS=False)
+            
+    def read_value_lsb(self, width):
+        """ width is number of bytes to read (lsb-first)
+        return value is integer
+        """        
+        ret = self.read_value_msb(width)
+        return reverse_bits(8*width, ret)
 
-    def read_value(self, width):
-        """ width is number of bytes to read (big-endian)
+    def read_value_msb(self, width):
+        """ width is number of bytes to read (msb-first)
         return value is integer
         """
-        self.flush_tx_spi()
+        self.flush_tx()
 
         unused = 0xff
         lj = self.clk.parent
@@ -150,7 +173,7 @@ class Pic:
     def sleep(self, timeout):
         if timeout > 4e-6: # timeouts less than this are taken-care of
                            # by the slow SPI clock
-            self.flush_tx_spi()
+            self.flush_tx()
             time.sleep(timeout)
 
 class Pic16F_Enhanced_Midrange(Pic):
@@ -180,10 +203,10 @@ class Pic16F_Enhanced_Midrange(Pic):
         self.send24(d2<<1)
         self.sleep(self.Tdly)
 
-    def send32(self, d): self.send_value(32//8, d)
-    def send16(self, d): self.send_value(16//8, d)
-    def send24(self, d): self.send_value(24//8, d)
-    def send8(self, d): self.send_value(8//8, d)
+    def send32(self, d): self.send_value_msb(32, d)
+    def send16(self, d): self.send_value_msb(16, d)
+    def send24(self, d): self.send_value_msb(24, d)
+    def send8(self, d): self.send_value_msb(8, d)
 
     def read24(self):
         start_bit = (1<<31)
@@ -253,7 +276,7 @@ class Pic16F_Enhanced_Midrange(Pic):
             print(name, "@%04x:"%addr, "%04x"%self.read_word(addr))
 
     def exit_lvp(self):
-        self.flush_tx_spi()
+        self.flush_tx()
         self.mclr.set()
 
     def lookup_id(self):
@@ -482,26 +505,26 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
         return ret
 
     def read16_le(self):
+        "fourteen bits packed into sixteen clocks"
         start_bit = (1<<15)
         stop_bit = (1<<0)
         bits_mask = ~(start_bit | stop_bit)
 
-        ret = (self.read_value(16//8) & bits_mask) >> 1
-        return reverse_bits(ret, 14)
+        ret = (self.read_value_lsb(16//8) & bits_mask) >> 1
+        return ret
 
     def send32_le(self, d):
-        self.send32(reverse_bits(d, 32))
+        self.send_value_lsb(32, d)
 
     def send16_le(self, d):
         "fourteen bits packed into sixteen clocks"
-        dr = reverse_bits(d,14)
-        return self.send16(dr<<1)
+        return self.send_value_lsb(16, d<<1)
 
     def enter_lvp(self):
         self.mclr.clear()
         self.sleep(self.Tenth)
         self.send32_le(self.KEY)
-        self.queue_tx_bit(0)  # 33 bits!
+        self.send_value_lsb(1, 0)  # 33 bits!
         self.sleep(self.Tenth)
 
     def load_prog_mem(self, d, inc):
@@ -754,24 +777,20 @@ def program(mclr_pin,
 
     pic.enter_lvp()
 
-
     pic.send_6_le(pic.COMMAND_RESET_ADDRESS)
+ 
     pic.send_6_le(pic.COMMAND_BULK_ERASE)
 
-    pic.flush_tx_bits()
-    pic.flush_tx_spi()
-    
     pic.sleep(pic.Terab)
     
     pic.send_6_le(pic.COMMAND_LOAD_DATA)
     pic.send16_le(0x44)
     pic.send_6_le(pic.COMMAND_BEGIN_PROG_INT)
-    pic.flush_tx_bits()
-    time.sleep(0.05)
+
+    pic.sleep(0.05)
     pic.send_6_le(pic.COMMAND_READ_DATA)
     x = pic.read16_le()
     print("%x"%x)
-    pic.flush_tx_spi()
 
     pic.exit_lvp()    
     return [] #verify_errors
