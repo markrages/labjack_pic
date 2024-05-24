@@ -46,10 +46,22 @@ not available as a general-purpose input in the circuit.  This also
 means that this programmer cannot recover a part that has been
 programmed to MCLR-as-input.
 
-Currently supports devices covered by [Programming Specification 40002317](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F180XX-Family-Programming-Specification-40002317.pdf) and [Programming Specification 40002266](https://ww1.microchip.com/downloads/aemtest/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F171XX-Family-Programming-Specification-40002266.pdf).
+Currently supports devices covered by [Programming Specification 40002317](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F180XX-Family-Programming-Specification-40002317.pdf), [Programming Specification 40002266](https://ww1.microchip.com/downloads/aemtest/MCU08/ProductDocuments/ProgrammingSpecifications/PIC16F171XX-Family-Programming-Specification-40002266.pdf), and [Programming Specification 40001683B](https://ww1.microchip.com/downloads/en/DeviceDoc/40001683B.pdf)
 
 These are:
 
+- PIC16F1703
+- PIC16LF1703
+- PIC16F1704
+- PIC16LF1704
+- PIC16F1705
+- PIC16LF1705
+- PIC16F1707
+- PIC16LF1707
+- PIC16F1708
+- PIC16LF1708
+- PIC16F1709
+- PIC16LF1709
 - PIC16F17114
 - PIC16F17115
 - PIC16F17124
