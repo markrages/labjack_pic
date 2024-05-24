@@ -105,9 +105,10 @@ class Pic:
             cmd >>= 1
 
     def flush_tx_spi(self):
-        self.flush_tx_bits()
-
         alldata = list(itertools.chain(*self.tx_spi))
+        if alldata:
+            self.flush_tx_bits()
+        
         self.tx_spi = []
 
         unused = 0xff
@@ -180,6 +181,7 @@ class Pic16F_Enhanced_Midrange(Pic):
         self.sleep(self.Tdly)
 
     def send32(self, d): self.send_value(32//8, d)
+    def send16(self, d): self.send_value(16//8, d)
     def send24(self, d): self.send_value(24//8, d)
     def send8(self, d): self.send_value(8//8, d)
 
@@ -195,7 +197,7 @@ class Pic16F_Enhanced_Midrange(Pic):
         self.sleep(self.Tenth)
         self.send32(self.KEY)
         self.sleep(self.Tenth)
-        
+
     def set_PC(self, pc):
         self.pc = pc
         self.send8_24(0x80, pc)
@@ -203,6 +205,11 @@ class Pic16F_Enhanced_Midrange(Pic):
     def increment_pc(self):
         self.pc += 1
         self.send8(0xf8)
+
+    def load_mem(self, d, inc=False):
+        "loads one word of data from PC into buffer on target"
+        self.send8_24([0x00, 0x02][inc], d)
+        self.pc += inc
 
     def write_row(self):
         self.send8(0xe0) # internally timed
@@ -425,41 +432,54 @@ class Pic16F17175(Pic16F_40002266):
 class Pic16F17176(Pic16F_40002266):
     FLASH_LEN = 16*1024
 
-
-back_key = reverse_bits(0x4d434850,32)
-
 class Pic16F_XLP(Pic16F_Enhanced_Midrange):
-    KEY = back_key # 'MCHP' backwards
+    # these from Table 4-1
+    COMMAND_LOAD_CONFIG = 0x00
+    COMMAND_LOAD_DATA = 0x02
+    COMMAND_READ_DATA = 0x04
+    COMMAND_INC_ADDRESS = 0x06
+    COMMAND_RESET_ADDRESS = 0x16
+    COMMAND_BEGIN_PROG_INT = 0x08
+    COMMAND_BEGIN_PROG_EXT = 0x18
+    COMMAND_END_PROG_EXT = 0x0a
+    COMMAND_BULK_ERASE = 0x09
+    COMMAND_ROW_ERASE = 0x11
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pc = 99999999
-        
+
+    def inc_PC(self):
+        self.send_6_le(self.COMMAND_INC_ADDRESS) 
+        self.pc += 1
+
     def set_PC(self, address):
+        
+        print("setting PC=%04x to %04x"%(self.pc, address))
         if address >= 0x8000: # config data
             if (self.pc < 0x8000) or (self.pc > address):
-                self.send_6_le(0x00) # load configuration
-                self.send_value(2, 0x00)
+                print("  loading config")
+                self.send_6_le(self.COMMAND_LOAD_CONFIG)
+                self.send16_le(0)
                 self.pc = 0x8000
         else: # not config data
             if self.pc > address:
-                self.send_6_le(0x16) # reset address
+                print("  resetting address")
+                self.send_6_le(self.COMMAND_RESET_ADDRESS)
                 self.pc = 0
 
         while self.pc < address:
-             self.send_6_le(0x06) # increment address
-             self.pc += 1
+            self.inc_PC()
 
     def read_mem(self, inc=True):
-        self.send_6_le(0x04)
+        self.send_6_le(self.COMMAND_READ_DATA)
         self.sleep(self.Tdly)
         ret = self.read16_le()
 
         if inc:
-            self.send_6_le(0x06)
-            self.pc += 1
+            self.inc_PC()
 
         return ret
-
 
     def read16_le(self):
         start_bit = (1<<15)
@@ -468,25 +488,74 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
 
         ret = (self.read_value(16//8) & bits_mask) >> 1
         return reverse_bits(ret, 14)
-        
+
+    def send32_le(self, d):
+        self.send32(reverse_bits(d, 32))
+
+    def send16_le(self, d):
+        "fourteen bits packed into sixteen clocks"
+        dr = reverse_bits(d,14)
+        return self.send16(dr<<1)
+
     def enter_lvp(self):
         self.mclr.clear()
         self.sleep(self.Tenth)
-        self.send32(self.KEY)
-        self.queue_tx_bit(0)       
+        self.send32_le(self.KEY)
+        self.queue_tx_bit(0)  # 33 bits!
         self.sleep(self.Tenth)
-        
-    def xwrite_flash(self, data, start_addr = None):
-        if start_addr is None:
-            start_addr = 0
 
-        self.set_PC(start_addr)            
-        for d in data:
-            x = reverse_bits(d, 14)            
-            #TODO send bits out SPI
+    def load_prog_mem(self, d, inc):
+        print("load_prog %04x %03x"%(self.pc, d))
+        self.send_6_le(self.COMMAND_LOAD_DATA)        
+        self.send16_le(d)
+        if inc:
+            self.inc_PC()
+
+    def load_config_mem(self, d, inc):
+        self.send_6_le(self.COMMAND_LOAD_CONFIG)
+        if inc:
+            self.inc_PC()
             
-            
-        
+    def load_mem(self, d, inc=False):
+        "loads one word of data from PC into buffer on target"
+        if self.pc >= 0x8000:
+            return self.load_config_mem(d, inc)
+        else:
+            return self.load_prog_mem(d, inc)
+
+    def write_row(self):
+        " Write a row of data in one shot "
+        self.send_6_le(self.COMMAND_BEGIN_PROG_INT)
+
+        if self.pc < self.USER_ADDR:
+            self.sleep(self.Tpint)
+        else:
+            self.sleep(self.Tpint_config)
+
+    def bulk_erase(self,
+                   erase_eeprom = False,
+                   erase_flash = False,
+                   erase_user_id = False,
+                   erase_config = False):
+
+        if (erase_flash and
+            (not erase_user_id) and
+            erase_config):
+            self.set_PC(0)
+            self.send_6_le(self.COMMAND_BULK_ERASE)
+
+        elif (erase_flash and
+              erase_user_id and
+              erase_config):
+            self.set_PC(0x8000)
+            self.send_6_le(self.COMMAND_BULK_ERASE)
+
+        else:
+            raise Exception("This bulk erase is not possible")
+                    
+        self.sleep(self.Terab)
+
+
 class Pic16F_40001683(Pic16F_XLP):
     """
     Programming spec: 40001683
@@ -496,13 +565,6 @@ class Pic16F_40001683(Pic16F_XLP):
 
     Tpint = 0.0025 # program memory
     Tpint_config = 0.005 # config memory
-
-    def set_PC(self, pc):
-        self.pc = pc
-        self.send8_24(0x80, pc)
-
-    def read_mem():
-        pass
 
 class Pic16F1703(Pic16F_40001683):
     FLASH_LEN = 0x0800
@@ -573,7 +635,7 @@ device_ids = {
     0x3056: Pic16LF1709,
 }
 
-def program(mclr_pin,
+def programa(mclr_pin,
             icspdat_pin,
             icspclk_pin,
             hex_filename,
@@ -680,6 +742,139 @@ def program(mclr_pin,
         pic.exit_lvp()
         return verify_errors
 
+def program(mclr_pin,
+            icspdat_pin,
+            icspclk_pin,
+            hex_filename,
+            require_pic=None):
+
+    pic = Pic16F1704(mclr_pin = mclr_pin,
+                     icspdat_pin = icspdat_pin,
+                     icspclk_pin = icspclk_pin)
+
+    pic.enter_lvp()
+
+
+    pic.send_6_le(pic.COMMAND_RESET_ADDRESS)
+    pic.send_6_le(pic.COMMAND_BULK_ERASE)
+
+    pic.flush_tx_bits()
+    pic.flush_tx_spi()
+    
+    pic.sleep(pic.Terab)
+    
+    pic.send_6_le(pic.COMMAND_LOAD_DATA)
+    pic.send16_le(0x44)
+    pic.send_6_le(pic.COMMAND_BEGIN_PROG_INT)
+    pic.flush_tx_bits()
+    time.sleep(0.05)
+    pic.send_6_le(pic.COMMAND_READ_DATA)
+    x = pic.read16_le()
+    print("%x"%x)
+    pic.flush_tx_spi()
+
+    pic.exit_lvp()    
+    return [] #verify_errors
+    
+def programb(mclr_pin,
+            icspdat_pin,
+            icspclk_pin,
+            hex_filename,
+            require_pic=None):
+
+    pic = Pic16F1704(mclr_pin = mclr_pin,
+                     icspdat_pin = icspdat_pin,
+                     icspclk_pin = icspclk_pin)
+
+    print("Found", pic.name)
+    if require_pic:
+        assert require_pic.upper() == pic.name.upper()
+
+    ih = intelhex.IntelHex16bit()
+    ih.loadfile(hex_filename, format='hex')
+
+    used_regions = []
+    for seg_start, seg_stop in ih.segments():
+        #print("seg", seg_start, seg_stop)
+        # The spec is to have intel-hex addresses at twice the PIC address.
+        assert 0 == seg_start % 2
+        assert 0 == seg_stop % 2
+
+        seg_start //= 2
+        seg_stop //= 2
+
+        assigned_regions = []
+
+        for mem_start, mem_stop, name, erase_size in pic.memory_map:
+            if mem_start >= seg_stop:
+                continue
+            if seg_start >= mem_stop:
+                continue
+
+            # round down to erase row
+            seg_start = (seg_start//erase_size)*erase_size
+            # round up to erase row size
+            seg_stop  = ((seg_stop + erase_size - 1)//erase_size)*erase_size
+
+            assigned_regions.append([name, seg_start, seg_stop])
+
+        assert len(assigned_regions) <= 1
+        used_regions.extend(assigned_regions)
+
+        # Coalesce contiguous
+        cont_regions = []
+        last_region = None
+        for region in used_regions:
+            if last_region:
+                if (region[0] == last_region[0] and # compare names
+                    last_region[2]>=region[1]): # contiguous
+                    last_region[2]=region[2]
+                else:
+                    cont_regions.append(last_region)
+                    last_region = region
+            else:
+                last_region = region
+        if last_region:
+            cont_regions.append(last_region)
+
+    #print("used regions", used_regions)
+    #print("contiguous regions", cont_regions)
+
+    region_by_type = {}
+    for c in cont_regions:
+        region_by_type.setdefault(c[0], []).append(c[1:])
+
+    print(region_by_type)
+
+    pic.enter_lvp()
+    pic.bulk_erase(#erase_eeprom = 'eeprom' in region_by_type,
+                   erase_flash = 'program' in region_by_type,
+                   erase_user_id = 'user' in region_by_type,
+                   erase_config = 'config' in region_by_type)
+
+    verify_errors = 0
+
+    for r, reglist in region_by_type.items():
+        for reg in reglist:
+            words = [ih[x] for x in range(*reg)]
+            #print(r, words, ["%04x"%x for x in reg])
+            #print(">  ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
+            words = words[:32]
+            pic.write_flash(words, start_addr = reg[0])
+            #print(">> ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
+            readback = pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0])
+            for word_wrote,word_read,addr in zip(words, readback, range(*reg)):
+                if (word_wrote ^ word_read) & 16383:
+                    for start,end,name,_ in pic.memory_map:
+                        if addr >= start and addr < end:
+                            print(f"Verify Error at {addr:04x} (wrote {word_wrote:04x}, read {word_read:04x})")
+                            verify_errors += 1
+
+        #pic.read_config_stuff()
+
+        pic.exit_lvp()
+        return verify_errors
+    
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Program a PIC using LabJack.")
