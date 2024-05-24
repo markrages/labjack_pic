@@ -8,7 +8,7 @@ from u3 import BitStateWrite, BitStateRead, WaitShort
 
 """
 
-Read / write PIC16F18025 type part.
+Program PIC microprocessors.
 
 I hooked up like so:
 
@@ -119,15 +119,6 @@ class Pic:
             
         lj.getFeedback(fb_commands)
 
-    def send_6_le(self, cmd):
-        ret = self.send_value_lsb(6, cmd)
-        if dbg_flush: self.flush_tx()
-        return ret
-
-    def flush_tx(self):
-        self._flush_tx_spi()
-        self._flush_tx_bits()
-        
     def _flush_tx_spi(self):
 
         dbg_print(f"spi flushing {self.tx_bits_ct} bits {self.tx_bits:x}")
@@ -151,6 +142,10 @@ class Pic:
                    CSPinNum = unused,
                    SPIMode='B',
                    AutoCS=False)
+
+    def flush_tx(self):
+        self._flush_tx_spi()
+        self._flush_tx_bits()
             
     def read_value_lsb(self, width):
         """ width is number of bytes to read (lsb-first)
@@ -179,6 +174,7 @@ class Pic:
             ret <<= 8
             ret += spi['SPIBytes'][i]
 
+        dbg_print("read %x"%ret)
         return ret
 
     def sleep(self, timeout):
@@ -291,21 +287,6 @@ class Pic16F_Enhanced_Midrange(Pic):
     def exit_lvp(self):
         self.flush_tx()
         self.mclr.set()
-
-    def lookup_id(self):
-        self.enter_lvp()
-        device_id = self.read_device_id()
-
-        if not device_id in device_ids:
-            self.exit_lvp()
-            raise KeyError("Unknown device ID: %x"%device_id)
-
-        cls = device_ids[device_id]
-
-        return cls(mclr_pin = self.mclr,
-                   icspdat_pin = self.dat,
-                   icspclk_pin = self.clk,
-                   skip_mclr = True)
 
     def bulk_erase(self,
                    erase_eeprom = False,
@@ -488,7 +469,7 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
         self.pc = 99999999
 
     def increment_pc(self):
-        self.send_6_le(self.COMMAND_INC_ADDRESS) 
+        self.send6_le(self.COMMAND_INC_ADDRESS) 
         self.pc += 1
 
     def set_PC(self, address):
@@ -497,20 +478,20 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
         if address >= 0x8000: # config data
             if (self.pc < 0x8000) or (self.pc > address):
                 dbg_print("  loading config")
-                self.send_6_le(self.COMMAND_LOAD_CONFIG)
+                self.send6_le(self.COMMAND_LOAD_CONFIG)
                 self.send16_le(0)
                 self.pc = 0x8000
         else: # not config data
             if self.pc > address:
                 dbg_print("  resetting address")
-                self.send_6_le(self.COMMAND_RESET_ADDRESS)
+                self.send6_le(self.COMMAND_RESET_ADDRESS)
                 self.pc = 0
 
         while self.pc < address:
             self.increment_pc()
 
     def read_mem(self, inc=True):
-        self.send_6_le(self.COMMAND_READ_DATA)
+        self.send6_le(self.COMMAND_READ_DATA)
         self.sleep(self.Tdly)
         ret = self.read16_le()
 
@@ -535,6 +516,11 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
         "fourteen bits packed into sixteen clocks"
         return self.send_value_lsb(16, (d & 0x3fff) << 1)
 
+    def send6_le(self, cmd):
+        ret = self.send_value_lsb(6, cmd)
+        if dbg_flush: self.flush_tx()
+        return ret
+    
     def enter_lvp(self):
         self.mclr.clear()
         self.sleep(self.Tenth)
@@ -544,7 +530,7 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
 
     def load_prog_mem(self, d, inc):
         dbg_print("load_prog %04x %03x"%(self.pc, d))
-        self.send_6_le(self.COMMAND_LOAD_DATA)        
+        self.send6_le(self.COMMAND_LOAD_DATA)        
         self.send16_le(d)
         if inc:
             self.increment_pc()
@@ -553,7 +539,7 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
         addr = self.pc
         
         dbg_print("load_config %04x %03x"%(self.pc, d))
-        self.send_6_le(self.COMMAND_LOAD_CONFIG)
+        self.send6_le(self.COMMAND_LOAD_CONFIG)
         self.send16_le(d)
         self.pc = 0x8000
         while self.pc < addr:
@@ -570,19 +556,19 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
             return self.load_prog_mem(d, inc)
 
     def write_row_prog_int(self):
-        self.send_6_le(self.COMMAND_BEGIN_PROG_INT)
+        self.send6_le(self.COMMAND_BEGIN_PROG_INT)
         self.sleep(self.Tpint)
 
     def write_row_prog_ext(self):
         """not measurably faster than internal
-        due to USB timing no doubt."""
-        self.send_6_le(self.COMMAND_BEGIN_PROG_EXT)
+        (due to USB timing no doubt.)"""
+        self.send6_le(self.COMMAND_BEGIN_PROG_EXT)
         self.sleep(self.Tpext_min)
-        self.send_6_le(self.COMMAND_END_PROG_EXT)
+        self.send6_le(self.COMMAND_END_PROG_EXT)
         self.sleep(self.Tdis)      
                 
     def write_row_config(self):
-        self.send_6_le(self.COMMAND_BEGIN_PROG_INT)
+        self.send6_le(self.COMMAND_BEGIN_PROG_INT)
         self.sleep(self.Tpint_config)
             
     def write_row(self):
@@ -602,13 +588,13 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
             (not erase_user_id) and
             erase_config):
             self.set_PC(0)
-            self.send_6_le(self.COMMAND_BULK_ERASE)
+            self.send6_le(self.COMMAND_BULK_ERASE)
 
         elif (erase_flash and
               erase_user_id and
               erase_config):
             self.set_PC(0x8000)
-            self.send_6_le(self.COMMAND_BULK_ERASE)
+            self.send6_le(self.COMMAND_BULK_ERASE)
 
         else:
             raise Exception("This bulk erase is not possible")
@@ -697,25 +683,44 @@ device_ids = {
     0x3056: Pic16LF1709,
 }
 
+def specialize(general_pic, cls):
+    return cls(mclr_pin = general_pic.mclr,
+               icspdat_pin = general_pic.dat,
+               icspclk_pin = general_pic.clk,
+               skip_mclr = True)
+
 def program(mclr_pin,
             icspdat_pin,
             icspclk_pin,
             hex_filename,
             require_pic=None):
 
-    try:
-        pic = Pic16F_Enhanced_Midrange(mclr_pin = mclr_pin,
-                                       icspdat_pin = icspdat_pin,
-                                       icspclk_pin = icspclk_pin)
-        pic.lookup_id()
+    found = False
+    found_ids = []
 
-    except KeyError:
-        pic = Pic16F_XLP(mclr_pin = mclr_pin,
-                         icspdat_pin = icspdat_pin,
-                         icspclk_pin = icspclk_pin)
+    # This dance is required because different classes of PIC have
+    # different readout mechanisms
+    for cls in [Pic16F_Enhanced_Midrange,
+                Pic16F_XLP]:
+        general_pic = cls(mclr_pin = mclr_pin,
+                          icspdat_pin = icspdat_pin,
+                          icspclk_pin = icspclk_pin)
+        
+        general_pic.enter_lvp()
+        device_id = general_pic.read_device_id()
 
-
-    with pic.lookup_id() as pic:
+        found_ids.append(device_id)
+        
+        if device_id in device_ids:
+            found = True
+            break
+        general_pic.exit_lvp()
+                    
+    if not found:
+        raise Exception("No known PIC found:",
+              ", ".join('0x%04x'%did for did in found_ids))
+    
+    with specialize(general_pic, device_ids[device_id]) as pic:
 
         print("Found", pic.name)
         if require_pic:
@@ -799,135 +804,6 @@ def program(mclr_pin,
                                 verify_errors += 1
 
             #pic.read_config_stuff()
-
-        pic.exit_lvp()
-        return verify_errors
-
-def program_min(mclr_pin,
-            icspdat_pin,
-            icspclk_pin,
-            hex_filename,
-            require_pic=None):
-
-    pic = Pic16F1704(mclr_pin = mclr_pin,
-                     icspdat_pin = icspdat_pin,
-                     icspclk_pin = icspclk_pin)
-
-    pic.enter_lvp()
-
-    pic.send_6_le(pic.COMMAND_RESET_ADDRESS)
- 
-    pic.send_6_le(pic.COMMAND_BULK_ERASE)
-
-    pic.sleep(pic.Terab)
-    
-    pic.send_6_le(pic.COMMAND_LOAD_DATA)
-    pic.send16_le(0x44)
-    pic.send_6_le(pic.COMMAND_BEGIN_PROG_INT)
-
-    pic.sleep(0.05)
-    pic.send_6_le(pic.COMMAND_READ_DATA)
-    x = pic.read16_le()
-    dbg_print("%x"%x)
-
-    pic.exit_lvp()    
-    return [] #verify_errors
-    
-def programb(mclr_pin,
-            icspdat_pin,
-            icspclk_pin,
-            hex_filename,
-            require_pic=None):
-
-    pic = Pic16F1704(mclr_pin = mclr_pin,
-                     icspdat_pin = icspdat_pin,
-                     icspclk_pin = icspclk_pin)
-
-    print("Found", pic.name)
-    if require_pic:
-        assert require_pic.upper() == pic.name.upper()
-
-    ih = intelhex.IntelHex16bit()
-    ih.loadfile(hex_filename, format='hex')
-
-    used_regions = []
-    for seg_start, seg_stop in ih.segments():
-        #dbg_print("seg", seg_start, seg_stop)
-        # The spec is to have intel-hex addresses at twice the PIC address.
-        assert 0 == seg_start % 2
-        assert 0 == seg_stop % 2
-
-        seg_start //= 2
-        seg_stop //= 2
-
-        assigned_regions = []
-
-        for mem_start, mem_stop, name, erase_size in pic.memory_map:
-            if mem_start >= seg_stop:
-                continue
-            if seg_start >= mem_stop:
-                continue
-
-            # round down to erase row
-            seg_start = (seg_start//erase_size)*erase_size
-            # round up to erase row size
-            seg_stop  = ((seg_stop + erase_size - 1)//erase_size)*erase_size
-
-            assigned_regions.append([name, seg_start, seg_stop])
-
-        assert len(assigned_regions) <= 1
-        used_regions.extend(assigned_regions)
-
-        # Coalesce contiguous
-        cont_regions = []
-        last_region = None
-        for region in used_regions:
-            if last_region:
-                if (region[0] == last_region[0] and # compare names
-                    last_region[2]>=region[1]): # contiguous
-                    last_region[2]=region[2]
-                else:
-                    cont_regions.append(last_region)
-                    last_region = region
-            else:
-                last_region = region
-        if last_region:
-            cont_regions.append(last_region)
-
-    #dbg_print("used regions", used_regions)
-    #dbg_print("contiguous regions", cont_regions)
-
-    region_by_type = {}
-    for c in cont_regions:
-        region_by_type.setdefault(c[0], []).append(c[1:])
-
-    print(region_by_type)
-
-    pic.enter_lvp()
-    pic.bulk_erase(#erase_eeprom = 'eeprom' in region_by_type,
-                   erase_flash = 'program' in region_by_type,
-                   erase_user_id = 'user' in region_by_type,
-                   erase_config = 'config' in region_by_type)
-
-    verify_errors = 0
-
-    for r, reglist in region_by_type.items():
-        for reg in reglist:
-            words = [ih[x] for x in range(*reg)]
-            #print(r, words, ["%04x"%x for x in reg])
-            #print(">  ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
-            words = words[:32]
-            pic.write_flash(words, start_addr = reg[0])
-            #print(">> ",pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0]))
-            readback = pic.read_flash(start_addr = reg[0], length=reg[1]-reg[0])
-            for word_wrote,word_read,addr in zip(words, readback, range(*reg)):
-                if (word_wrote ^ word_read) & 16383:
-                    for start,end,name,_ in pic.memory_map:
-                        if addr >= start and addr < end:
-                            print(f"Verify Error at {addr:04x} (wrote {word_wrote:04x}, read {word_read:04x})")
-                            verify_errors += 1
-
-        #pic.read_config_stuff()
 
         pic.exit_lvp()
         return verify_errors
