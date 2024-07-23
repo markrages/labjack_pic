@@ -16,7 +16,8 @@ Connect GND, MCLR, ICSPDAT, ICSPCLK to FIOs on the LabJack. Defaults are:
  - ICSPDAT on FIO5
  - ICSPCLK on FIO6
 
-You can use different pins, just edit the script correspondingly.
+You can select different pins with the `--mclr`, `--icspdat`, and
+`--icspclk` arguments.
 
 If your circuit is OK with 5V power and doesn't draw too much current,
 you can power it with VS (USB power).  Otherwise arrange some other

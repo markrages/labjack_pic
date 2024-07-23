@@ -813,12 +813,25 @@ def main():
     parser = argparse.ArgumentParser(description="Program a PIC using LabJack.")
     parser.add_argument("--pic", "-p", help='Require this device before programming')
     parser.add_argument("hexfile", metavar="HEXFILE", nargs=1, help="Hex file to program")
+
+    parser.add_argument(
+        "--mclr", default='FIO4', help="Labjack pin for !MCLR. (Default %(default)s)"
+    )
+
+    parser.add_argument(
+        "--icspdat", default='FIO5', help="Labjack pin for ICSPDAT. (Default %(default)s)"
+    )
+
+    parser.add_argument(
+        "--icspclk", default='FIO6', help="Labjack pin for ICSPCLK. (Default %(default)s)"
+    )
+
     args = parser.parse_args()
 
     lj = u3_manager.u3()
-    return program(mclr_pin = lj.FIO4,
-                   icspdat_pin = lj.FIO5,
-                   icspclk_pin = lj.FIO6,
+    return program(mclr_pin = getattr(lj, args.mclr),
+                   icspdat_pin = getattr(lj, args.icspdat),
+                   icspclk_pin = getattr(lj, args.icspclk),
                    require_pic = args.pic,
                    hex_filename = args.hexfile[0])
 
