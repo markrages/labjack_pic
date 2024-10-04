@@ -86,6 +86,9 @@ class Pic:
         if not exc_type:
             self.flush_tx()
 
+        self.dat.read()
+        self.clk.read()
+            
     @property
     def name(self):
         return self.__class__.__name__
@@ -304,7 +307,7 @@ class Pic16F_Enhanced_Midrange(Pic):
     def exit_lvp(self):
         self.flush_tx()
         self.mclr_clr()
-
+        
     def bulk_erase(self,
                    erase_eeprom = False,
                    erase_flash = False,
