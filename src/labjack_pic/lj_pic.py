@@ -49,18 +49,35 @@ class Pic:
                  mclr_pin=None,
                  icspdat_pin=None,
                  icspclk_pin=None,
-                 skip_mclr = False):
+                 skip_mclr = False,
+                 invert_mclr = False):
         self.mclr = mclr_pin
         self.dat = icspdat_pin
         self.clk = icspclk_pin
+        self.invert_mclr = invert_mclr
+
+        # "set" means asserted
+        if invert_mclr:
+            self.mclr_set = self.mclr_high
+            self.mclr_clr = self.mclr_low
+        else:
+            self.mclr_set = self.mclr_low
+            self.mclr_clr = self.mclr_high
 
         if not skip_mclr:
-            self.mclr.set()
+            self.mclr_clr()
+
         self.dat.clear()
         self.clk.clear()
 
         self.tx_bits = 0
         self.tx_bits_ct = 0
+
+
+    def mclr_high(self):
+        self.mclr.set()
+    def mclr_low(self):
+        self.mclr.clear()
 
     def __enter__(self):
         return self
@@ -225,7 +242,7 @@ class Pic16F_Enhanced_Midrange(Pic):
         return (self.read_value_msb(24//8) & bits_mask) >> 1
 
     def enter_lvp(self):
-        self.mclr.clear()
+        self.mclr_set()
         self.sleep(self.Tenth)
         self.send32(self.KEY)
         self.sleep(self.Tenth)
@@ -286,7 +303,7 @@ class Pic16F_Enhanced_Midrange(Pic):
 
     def exit_lvp(self):
         self.flush_tx()
-        self.mclr.set()
+        self.mclr_clr()
 
     def bulk_erase(self,
                    erase_eeprom = False,
@@ -522,7 +539,7 @@ class Pic16F_XLP(Pic16F_Enhanced_Midrange):
         return ret
     
     def enter_lvp(self):
-        self.mclr.clear()
+        self.mclr_set()
         self.sleep(self.Tenth)
         self.send32_le(self.KEY)
         self.send_value_lsb(1, 0)  # 33 bits!
@@ -687,13 +704,15 @@ def specialize(general_pic, cls):
     return cls(mclr_pin = general_pic.mclr,
                icspdat_pin = general_pic.dat,
                icspclk_pin = general_pic.clk,
+               invert_mclr = general_pic.invert_mclr,
                skip_mclr = True)
 
 def program(mclr_pin,
             icspdat_pin,
             icspclk_pin,
             hex_filename,
-            require_pic=None):
+            require_pic=None,
+            invert_mclr=False):
 
     found = False
     found_ids = []
@@ -704,7 +723,8 @@ def program(mclr_pin,
                 Pic16F_XLP]:
         general_pic = cls(mclr_pin = mclr_pin,
                           icspdat_pin = icspdat_pin,
-                          icspclk_pin = icspclk_pin)
+                          icspclk_pin = icspclk_pin,
+                          invert_mclr = invert_mclr)
         
         general_pic.enter_lvp()
         device_id = general_pic.read_device_id()
@@ -819,7 +839,11 @@ def main():
     )
 
     parser.add_argument(
-        "--icspdat", default='FIO5', help="Labjack pin for ICSPDAT. (Default %(default)s)"
+        "--invert_mclr", action="store_true", help="Positive-logic MCLR (for special hardware)."
+    )
+
+    parser.add_argument(
+        "--icspdat", default='FIO5', help="Labjack pin for ICSPDAT. (Default %(default)s)",
     )
 
     parser.add_argument(
@@ -833,6 +857,7 @@ def main():
                    icspdat_pin = getattr(lj, args.icspdat),
                    icspclk_pin = getattr(lj, args.icspclk),
                    require_pic = args.pic,
+                   invert_mclr = args.invert_mclr,
                    hex_filename = args.hexfile[0])
 
 if __name__=="__main__":
