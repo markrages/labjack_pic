@@ -291,6 +291,12 @@ class I2CAddressed(object):
 class I2CAddressedCompat(object):
     def __init__(self, parent):
         self.parent = parent
+        self.address = None
+
+    def get_port(self, address):
+        ret = self.parent.compat()
+        ret.address = address
+        return ret
 
     def write(self, data):
         print('data',data)
@@ -300,8 +306,13 @@ class I2CAddressedCompat(object):
         return self.exchange(data=[], count=count)
 
     def exchange(self, data, count):
-        ret = self.parent(I2CBytes = list(data),
-                          NumI2CBytesToReceive = count)
+        kwargs = {'I2CBytes': list(data),
+                  'NumI2CBytesToReceive': count}
+
+        if not self.address is None:
+            kwargs['Address'] = self.address << 1
+
+        ret = self.parent(**kwargs)
         print(ret)
         return bytes(ret['I2CBytes'])
 
