@@ -299,7 +299,6 @@ class I2CAddressedCompat(object):
         return ret
 
     def write(self, data):
-        print('data',data)
         return self.exchange(data=data, count=0)
 
     def read(self, count):
@@ -310,10 +309,10 @@ class I2CAddressedCompat(object):
                   'NumI2CBytesToReceive': count}
 
         if not self.address is None:
-            kwargs['Address'] = self.address << 1
+            kwargs['Address'] = self.address
 
         ret = self.parent(**kwargs)
-        print(ret)
+        # print(ret)
         return bytes(ret['I2CBytes'])
 
 class I2C(object):
